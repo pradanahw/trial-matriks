@@ -1,0 +1,547 @@
+<style>
+  :root{
+    --mx-green:#00ff66;
+    --mx-green-dim:#0a3d1f;
+    --mx-bg:#020402;
+    --mx-glow: 0 0 8px rgba(0,255,102,0.9), 0 0 22px rgba(0,255,102,0.4);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--mx-bg);overflow:hidden;height:100%;}
+  #mx-root{
+    position:relative;
+    width:100%;
+    height:100vh;
+    min-height:560px;
+    background:var(--mx-bg);
+    font-family:'Courier New', ui-monospace, monospace;
+    color:var(--mx-green);
+    overflow:hidden;
+  }
+  #mx-video{ display:none; }
+  #mx-canvas{
+    position:absolute; inset:0;
+    width:100%; height:100%;
+    display:block;
+  }
+  #mx-hud{
+    position:absolute; top:0; left:0; right:0;
+    padding:16px 20px;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    pointer-events:none;
+    z-index:5;
+  }
+  #mx-title{
+    font-size:13px; letter-spacing:3px; text-transform:uppercase;
+    color:var(--mx-green); text-shadow:var(--mx-glow); opacity:0.9;
+  }
+  #mx-title span{opacity:0.55; display:block; font-size:10px; letter-spacing:2px; margin-top:4px;}
+  #mx-sig{
+    text-align:right; font-size:11px; letter-spacing:2px; line-height:1.6;
+    color:var(--mx-green); text-shadow:var(--mx-glow); min-width:220px;
+  }
+  #mx-sig b{display:block; font-size:15px; letter-spacing:3px;}
+  #mx-start-wrap{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:18px; z-index:10; background:rgba(2,4,2,0.94);
+    text-align:center; padding:24px;
+  }
+  #mx-start-wrap p{max-width:420px; font-size:12.5px; line-height:1.7; color:#5fffa0; opacity:0.85;}
+  #mx-start-btn{
+    background:transparent; border:1px solid var(--mx-green); color:var(--mx-green);
+    padding:12px 28px; font-family:inherit; font-size:13px; letter-spacing:3px;
+    text-transform:uppercase; cursor:pointer; text-shadow:var(--mx-glow);
+    transition:all .25s ease;
+  }
+  #mx-start-btn:hover{ background:var(--mx-green-dim); box-shadow:0 0 24px rgba(0,255,102,0.35); }
+  #mx-status{
+    position:absolute; bottom:16px; left:20px; font-size:11px; letter-spacing:2px;
+    color:var(--mx-green); opacity:0.7; z-index:5; text-shadow:0 0 6px rgba(0,255,102,0.6);
+  }
+  .hidden{ display:none !important; }
+</style>
+
+<div id="mx-root">
+  <video id="mx-video" playsinline></video>
+  <canvas id="mx-canvas"></canvas>
+
+  <div id="mx-hud">
+    <div id="mx-title">HAND CIPHER<span>kepal &rarr; padat &middot; tempelkan jari &rarr; bangun ruang &middot; wajah terbaca</span></div>
+    <div id="mx-sig">
+      <b id="mx-sig-code">--------</b>
+      OPENNESS <span id="mx-sig-open">0%</span>
+    </div>
+  </div>
+
+  <div id="mx-status">kamera nonaktif</div>
+
+  <div id="mx-start-wrap">
+    <div id="mx-title" style="position:static;">HAND CIPHER</div>
+    <p>Kamu akan tetap terlihat lewat kamera. Kepalkan tangan agar partikel matriks memadat, lepas untuk menyebarkannya, dan tempelkan ujung-ujung jari (satu atau dua tangan) untuk membentuk bangun ruang geometris. Ekspresi wajahmu juga ikut terbaca. Semua diproses langsung di browser, tidak ada video yang dikirim ke server manapun.</p>
+    <button id="mx-start-btn">Aktifkan Kamera</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+<script>
+(function(){
+  const root = document.getElementById('mx-root');
+  const videoEl = document.getElementById('mx-video');
+  const canvas = document.getElementById('mx-canvas');
+  const ctx = canvas.getContext('2d');
+  const startWrap = document.getElementById('mx-start-wrap');
+  const startBtn = document.getElementById('mx-start-btn');
+  const statusEl = document.getElementById('mx-status');
+  const sigCodeEl = document.getElementById('mx-sig-code');
+  const sigOpenEl = document.getElementById('mx-sig-open');
+
+  const HAND_CONNECTIONS = [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [5,9],[9,10],[10,11],[11,12],
+    [9,13],[13,14],[14,15],[15,16],
+    [13,17],[17,18],[18,19],[19,20],
+    [0,17]
+  ];
+  const FINGER_TIPS = [4,8,12,16,20];
+  const PALM_IDX = [0,5,9,13,17];
+  const GLYPHS = "アイウエオカキクケコサシスセソ0123456789#$%&";
+
+  const FIST_THRESH = 0.30;
+  const OPEN_THRESH = 0.55;
+  const MAX_PARTICLES = 90;
+  const TIP_LINK_THRESH = 42;
+
+  function resize(){
+    canvas.width = root.clientWidth;
+    canvas.height = root.clientHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function dist(a,b){
+    const dx=a.x-b.x, dy=a.y-b.y, dz=(a.z||0)-(b.z||0);
+    return Math.sqrt(dx*dx+dy*dy+dz*dz);
+  }
+
+  function computeOpenness(landmarks){
+    const wrist = landmarks[0];
+    let sum = 0;
+    FINGER_TIPS.forEach(i=> sum += dist(landmarks[i], wrist));
+    const raw = sum / FINGER_TIPS.length;
+    return Math.max(0, Math.min(1, (raw - 0.08) / 0.28));
+  }
+
+  function computeSignature(landmarks){
+    let h = 0;
+    for(let i=0;i<landmarks.length;i++){
+      const p = landmarks[i];
+      const v = Math.round(p.x*1000) * 31 + Math.round(p.y*1000) * 17 + Math.round((p.z||0)*1000);
+      h = (h*33 + v) >>> 0;
+    }
+    return h.toString(16).toUpperCase().padStart(8,'0').slice(0,8);
+  }
+
+  const faceState = { landmarks: null, label: 'B aja', emoji: '😐' };
+
+  function computeMood(landmarks){
+    const eyeDist = dist(landmarks[33], landmarks[263]);
+    const mouthCenterY = (landmarks[13].y + landmarks[14].y) / 2;
+    const cornerAvgY = (landmarks[61].y + landmarks[291].y) / 2;
+    const raise = (mouthCenterY - cornerAvgY) / (eyeDist || 0.001);
+    if(raise > 0.045) return { label:'Ok', emoji:'🙂' };
+    if(raise < -0.01) return { label:'Sedih dikit', emoji:'🙁' };
+    return { label:'B aja', emoji:'😐' };
+  }
+
+  function drawFace(){
+    if(!faceState.landmarks) return;
+    const w = canvas.width, h = canvas.height;
+    const top = faceState.landmarks[10];
+    const x = (1-top.x)*w, y = top.y*h - 30;
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = '13px monospace';
+    ctx.fillStyle = 'rgba(180,255,210,0.95)';
+    ctx.shadowColor = 'rgba(0,255,102,0.9)';
+    ctx.shadowBlur = 8;
+    ctx.fillText(faceState.emoji + ' ' + faceState.label, x, y);
+    ctx.restore();
+
+    [61,291].forEach(idx=>{
+      const p = faceState.landmarks[idx];
+      const px = (1-p.x)*w, py = p.y*h;
+      ctx.beginPath();
+      ctx.arc(px, py, 2.5, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(0,255,102,0.7)';
+      ctx.fill();
+    });
+  }
+
+  const handStates = [ {prevOpenness:null, particles:[]}, {prevOpenness:null, particles:[]} ];
+
+  function spawnConverging(state, center){
+    if(state.particles.length >= MAX_PARTICLES) return;
+    const toSpawn = Math.random() < 0.9 ? (2 + Math.floor(Math.random()*3)) : 0;
+    for(let k=0;k<toSpawn;k++){
+      const angle = Math.random()*Math.PI*2;
+      const radius = 60 + Math.random()*130;
+      state.particles.push({
+        x: center.x + Math.cos(angle)*radius,
+        y: center.y + Math.sin(angle)*radius,
+        vx:0, vy:0,
+        alpha: 0.1,
+        glyph: GLYPHS[Math.floor(Math.random()*GLYPHS.length)],
+        size: 10 + Math.random()*6,
+        mode: 'converge',
+        life: 999
+      });
+    }
+  }
+
+  function updateParticles(state, center, isFist, justOpened){
+    if(isFist){
+      spawnConverging(state, center);
+      state.particles.forEach(p=>{
+        if(p.mode !== 'converge') return;
+        const dx = center.x - p.x, dy = center.y - p.y;
+        const d = Math.hypot(dx,dy) || 1;
+        const orbit = d < 26 ? 0.4 : 0;
+        p.vx += (dx/d)*0.9 - (dy/d)*orbit*0.3;
+        p.vy += (dy/d)*0.9 + (dx/d)*orbit*0.3;
+        p.vx *= 0.82; p.vy *= 0.82;
+        p.x += p.vx; p.y += p.vy;
+        p.alpha = Math.min(1, p.alpha + 0.06);
+      });
+    } else if(justOpened){
+      state.particles.forEach(p=>{
+        const dx = p.x - center.x, dy = p.y - center.y;
+        const d = Math.hypot(dx,dy) || 0.001;
+        const speed = 4 + Math.random()*7;
+        p.vx = (dx/d)*speed + (Math.random()-0.5)*2;
+        p.vy = (dy/d)*speed + (Math.random()-0.5)*2;
+        p.mode = 'scatter';
+        p.life = 35 + Math.random()*25;
+      });
+    } else {
+      state.particles.forEach(p=>{
+        if(p.mode === 'scatter'){
+          p.x += p.vx; p.y += p.vy;
+          p.vx *= 0.97; p.vy *= 0.97;
+          p.life -= 1;
+          p.alpha = Math.max(0, p.life/60);
+        } else {
+          p.alpha -= 0.04;
+        }
+      });
+      state.particles = state.particles.filter(p => p.alpha > 0.02 && (p.mode !== 'scatter' || p.life > 0));
+    }
+  }
+
+  function fadeOutUnseen(state){
+    state.particles.forEach(p=>{
+      p.x += p.vx; p.y += p.vy;
+      p.vx *= 0.96; p.vy *= 0.96;
+      p.alpha -= 0.05;
+    });
+    state.particles = state.particles.filter(p => p.alpha > 0.02);
+  }
+
+  function drawParticles(state){
+    state.particles.forEach(p=>{
+      ctx.font = p.size + 'px monospace';
+      ctx.fillStyle = `rgba(120,255,170,${p.alpha.toFixed(2)})`;
+      ctx.shadowColor = 'rgba(0,255,102,0.9)';
+      ctx.shadowBlur = 8;
+      ctx.fillText(p.glyph, p.x, p.y);
+    });
+    ctx.shadowBlur = 0;
+  }
+
+  function drawHand(landmarks, openness){
+    const w = canvas.width, h = canvas.height;
+    const pts = landmarks.map(p => ({x:(1-p.x)*w, y:p.y*h}));
+
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = `rgba(0,255,120,${0.55+openness*0.4})`;
+    ctx.shadowColor = 'rgba(0,255,102,0.9)';
+    ctx.shadowBlur = 10 + openness*14;
+    ctx.beginPath();
+    HAND_CONNECTIONS.forEach(([a,b])=>{
+      ctx.moveTo(pts[a].x, pts[a].y);
+      ctx.lineTo(pts[b].x, pts[b].y);
+    });
+    ctx.stroke();
+
+    ctx.lineWidth = 0.8;
+    ctx.strokeStyle = `rgba(0,255,102,${0.2+openness*0.3})`;
+    ctx.beginPath();
+    for(let i=0;i<FINGER_TIPS.length;i++){
+      for(let j=i+1;j<FINGER_TIPS.length;j++){
+        ctx.moveTo(pts[FINGER_TIPS[i]].x, pts[FINGER_TIPS[i]].y);
+        ctx.lineTo(pts[FINGER_TIPS[j]].x, pts[FINGER_TIPS[j]].y);
+      }
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    pts.forEach((p, idx)=>{
+      const isTip = FINGER_TIPS.includes(idx);
+      const r = isTip ? 4.5 + openness*3 : 2.4;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI*2);
+      ctx.fillStyle = isTip ? '#baffd9' : 'rgba(0,255,102,0.85)';
+      ctx.shadowColor = 'rgba(0,255,102,1)';
+      ctx.shadowBlur = isTip ? 14 : 4;
+      ctx.fill();
+    });
+    ctx.shadowBlur = 0;
+
+    const sig = computeSignature(landmarks);
+    ctx.font = '10px monospace';
+    ctx.fillStyle = 'rgba(0,255,102,0.8)';
+    FINGER_TIPS.forEach((idx, k)=>{
+      const p = pts[idx];
+      ctx.fillText(sig[k] || '0', p.x + 8, p.y - 8);
+    });
+
+    let cx=0, cy=0;
+    PALM_IDX.forEach(i=>{ cx += pts[i].x; cy += pts[i].y; });
+    const center = {x: cx/PALM_IDX.length, y: cy/PALM_IDX.length};
+
+    const tips = FINGER_TIPS.map(idx => ({x: pts[idx].x, y: pts[idx].y, z: landmarks[idx].z || 0}));
+
+    return {sig, center, tips};
+  }
+
+  function unionFind(n){
+    const parent = Array.from({length:n}, (_,i)=>i);
+    function find(a){ while(parent[a]!==a){ parent[a]=parent[parent[a]]; a=parent[a]; } return a; }
+    function union(a,b){ const ra=find(a), rb=find(b); if(ra!==rb) parent[ra]=rb; }
+    return {find, union};
+  }
+
+  function processFingerLinks(frameData){
+    const tips = [];
+    frameData.forEach(fd => fd.tips.forEach(t => tips.push(t)));
+    const n = tips.length;
+    if(n < 2) return;
+
+    const uf = unionFind(n);
+    const edges = [];
+    for(let i=0;i<n;i++){
+      for(let j=i+1;j<n;j++){
+        const d = Math.hypot(tips[i].x-tips[j].x, tips[i].y-tips[j].y);
+        if(d < TIP_LINK_THRESH){
+          edges.push([i,j,d]);
+          uf.union(i,j);
+        }
+      }
+    }
+    if(edges.length === 0) return;
+
+    edges.forEach(([i,j,d])=>{
+      const a = tips[i], b = tips[j];
+      const strength = 1 - d/TIP_LINK_THRESH;
+      ctx.save();
+      ctx.strokeStyle = `rgba(180,255,210,${0.4+strength*0.5})`;
+      ctx.lineWidth = 1.5 + strength*2.5;
+      ctx.shadowColor = 'rgba(0,255,140,0.9)';
+      ctx.shadowBlur = 6 + strength*14;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      ctx.restore();
+    });
+
+    const groups = {};
+    for(let i=0;i<n;i++){
+      const r = uf.find(i);
+      (groups[r] = groups[r] || []).push(tips[i]);
+    }
+    Object.values(groups).forEach(pts=>{
+      if(pts.length < 3) return;
+      const cx = pts.reduce((s,p)=>s+p.x,0)/pts.length;
+      const cy = pts.reduce((s,p)=>s+p.y,0)/pts.length;
+      const sorted = pts.slice().sort((a,b)=> Math.atan2(a.y-cy,a.x-cx) - Math.atan2(b.y-cy,b.x-cx));
+      const avgZ = pts.reduce((s,p)=>s+(p.z||0),0)/pts.length;
+      const depthShade = Math.max(0.15, Math.min(0.5, 0.35 - avgZ*2));
+      ctx.save();
+      ctx.beginPath();
+      sorted.forEach((p,idx)=>{ idx===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y); });
+      ctx.closePath();
+      ctx.fillStyle = `rgba(0,255,140,${depthShade.toFixed(2)})`;
+      ctx.shadowColor = 'rgba(0,255,102,0.8)';
+      ctx.shadowBlur = 16;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(200,255,220,0.8)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+    });
+  }
+
+  function lerp(a,b,t){
+    return { x: a.x + (b.x-a.x)*t, y: a.y + (b.y-a.y)*t };
+  }
+
+  function drawMergeLink(c0, c1, strength){
+    ctx.save();
+    ctx.strokeStyle = `rgba(150,255,190,${0.3+strength*0.5})`;
+    ctx.lineWidth = 1 + strength*2;
+    ctx.shadowColor = 'rgba(0,255,102,0.9)';
+    ctx.shadowBlur = 6 + strength*18;
+    ctx.beginPath();
+    ctx.moveTo(c0.x, c0.y);
+    ctx.lineTo(c1.x, c1.y);
+    ctx.stroke();
+    const mid = { x:(c0.x+c1.x)/2, y:(c0.y+c1.y)/2 };
+    ctx.font = (12 + strength*10) + 'px monospace';
+    ctx.fillStyle = `rgba(200,255,220,${0.5+strength*0.5})`;
+    ctx.fillText(GLYPHS[Math.floor(Math.random()*GLYPHS.length)], mid.x-6, mid.y+4);
+    ctx.restore();
+  }
+
+  function drawVideoFrame(img){
+    const w = canvas.width, h = canvas.height;
+    ctx.save();
+    ctx.scale(-1,1);
+    ctx.drawImage(img, -w, 0, w, h);
+    ctx.restore();
+  }
+
+  let handsDetected = 0;
+
+  function onResults(results){
+    if(results.image){
+      drawVideoFrame(results.image);
+    } else {
+      ctx.fillStyle = 'rgba(2,4,2,1)';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+    }
+
+    drawFace();
+
+    handsDetected = (results.multiHandLandmarks || []).length;
+
+    if(handsDetected > 0){
+      const frameData = [];
+      results.multiHandLandmarks.forEach((landmarks, i)=>{
+        const state = handStates[i] || (handStates[i] = {prevOpenness:null, particles:[]});
+        const openness = computeOpenness(landmarks);
+        const {sig, center, tips} = drawHand(landmarks, openness);
+        const isFist = openness < FIST_THRESH;
+        const justOpened = state.prevOpenness !== null && state.prevOpenness < FIST_THRESH && openness > OPEN_THRESH;
+        frameData.push({state, center, isFist, justOpened, openness, sig, tips});
+        state.prevOpenness = openness;
+      });
+
+      processFingerLinks(frameData);
+
+      let mergeStrength = 0, mid = null;
+      const MERGE_DIST = 210;
+      if(frameData.length === 2){
+        const [A, B] = frameData;
+        const d = Math.hypot(A.center.x-B.center.x, A.center.y-B.center.y);
+        if(d < MERGE_DIST && A.isFist && B.isFist){
+          mergeStrength = 1 - d/MERGE_DIST;
+          mid = { x:(A.center.x+B.center.x)/2, y:(A.center.y+B.center.y)/2 };
+          if(mergeStrength > 0.6 && Math.random() < 0.15){
+            const sA = A.state.particles, sB = B.state.particles;
+            if(sA.length > 6 && (sB.length <= sA.length)) sB.push(sA.pop());
+            else if(sB.length > 6) sA.push(sB.pop());
+          }
+        }
+      }
+
+      frameData.forEach((fd, i)=>{
+        const targetCenter = mergeStrength > 0 ? lerp(fd.center, mid, mergeStrength*0.7) : fd.center;
+        updateParticles(fd.state, targetCenter, fd.isFist, fd.justOpened);
+        drawParticles(fd.state);
+        if(i === 0){
+          sigCodeEl.textContent = fd.sig;
+          sigOpenEl.textContent = Math.round(fd.openness*100) + '%';
+        }
+      });
+
+      if(mergeStrength > 0){
+        drawMergeLink(frameData[0].center, frameData[1].center, mergeStrength);
+      }
+
+      for(let i=handsDetected; i<handStates.length; i++){
+        if(handStates[i].particles.length){ fadeOutUnseen(handStates[i]); drawParticles(handStates[i]); }
+      }
+      statusEl.textContent = mergeStrength > 0.6
+        ? '2 tangan menyatu'
+        : handsDetected + ' tangan terdeteksi';
+    } else {
+      handStates.forEach(state=>{
+        if(state.particles.length){ fadeOutUnseen(state); drawParticles(state); }
+        state.prevOpenness = null;
+      });
+      sigCodeEl.textContent = '--------';
+      sigOpenEl.textContent = '0%';
+      statusEl.textContent = 'kamera aktif · tidak ada tangan terdeteksi';
+    }
+  }
+
+  let hands, faceMesh, camera;
+
+  function onFaceResults(results){
+    if(results.multiFaceLandmarks && results.multiFaceLandmarks.length){
+      const landmarks = results.multiFaceLandmarks[0];
+      const mood = computeMood(landmarks);
+      faceState.landmarks = landmarks;
+      faceState.label = mood.label;
+      faceState.emoji = mood.emoji;
+    } else {
+      faceState.landmarks = null;
+    }
+  }
+
+  async function start(){
+    startBtn.textContent = 'Meminta izin kamera...';
+    try{
+      hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+      hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.5
+      });
+      hands.onResults(onResults);
+
+      faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+      faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: false,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.5
+      });
+      faceMesh.onResults(onFaceResults);
+
+      camera = new Camera(videoEl, {
+        onFrame: async () => {
+          await hands.send({ image: videoEl });
+          await faceMesh.send({ image: videoEl });
+        },
+        width: 960,
+        height: 720
+      });
+      await camera.start();
+
+      startWrap.classList.add('hidden');
+      statusEl.textContent = 'kamera aktif · mencari tangan...';
+    }catch(err){
+      startBtn.textContent = 'Aktifkan Kamera';
+      statusEl.textContent = 'gagal mengakses kamera';
+      alert('Tidak bisa mengakses kamera: ' + (err && err.message ? err.message : err));
+    }
+  }
+
+  startBtn.addEventListener('click', start);
+})();
+</script>
