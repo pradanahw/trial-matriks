@@ -57,6 +57,19 @@
     position:absolute; bottom:16px; left:20px; font-size:11px; letter-spacing:2px;
     color:var(--mx-green); opacity:0.7; z-index:5; text-shadow:0 0 6px rgba(0,255,102,0.6);
   }
+  #mx-controls{
+    position:absolute; bottom:16px; right:20px; z-index:6; display:flex; gap:10px; align-items:center;
+  }
+  .mx-btn-small{
+    background:transparent; border:1px solid var(--mx-green); color:var(--mx-green);
+    padding:8px 14px; font-family:inherit; font-size:11px; letter-spacing:2px;
+    text-transform:uppercase; cursor:pointer; text-shadow:var(--mx-glow);
+    pointer-events:auto; transition:all .2s ease;
+  }
+  .mx-btn-small:hover{ background:var(--mx-green-dim); }
+  .mx-btn-group{ display:flex; gap:6px; }
+  .mx-grid-opt.active{ background:var(--mx-green-dim); box-shadow:0 0 14px rgba(0,255,102,0.4); }
+  #mx-preview-controls{ display:flex; gap:10px; }
   .hidden{ display:none !important; }
 </style>
 
@@ -73,6 +86,20 @@
   </div>
 
   <div id="mx-status">kamera nonaktif</div>
+
+  <div id="mx-controls" class="hidden">
+    <div id="mx-grid-size" class="mx-btn-group">
+      <button class="mx-btn-small mx-grid-opt active" data-n="3">3x3</button>
+      <button class="mx-btn-small mx-grid-opt" data-n="4">4x4</button>
+      <button class="mx-btn-small mx-grid-opt" data-n="5">5x5</button>
+    </div>
+    <button id="mx-puzzle-btn" class="mx-btn-small">Foto Puzzle</button>
+    <div id="mx-preview-controls" class="hidden">
+      <button id="mx-confirm-btn" class="mx-btn-small">Pakai Ini</button>
+      <button id="mx-retake-btn" class="mx-btn-small">Ambil Ulang</button>
+    </div>
+    <button id="mx-exit-btn" class="mx-btn-small hidden">Kembali</button>
+  </div>
 
   <div id="mx-start-wrap">
     <div id="mx-title" style="position:static;">HAND CIPHER</div>
@@ -96,6 +123,14 @@
   const statusEl = document.getElementById('mx-status');
   const sigCodeEl = document.getElementById('mx-sig-code');
   const sigOpenEl = document.getElementById('mx-sig-open');
+  const controlsEl = document.getElementById('mx-controls');
+  const puzzleBtn = document.getElementById('mx-puzzle-btn');
+  const exitBtn = document.getElementById('mx-exit-btn');
+  const gridSizeWrap = document.getElementById('mx-grid-size');
+  const gridButtons = document.querySelectorAll('.mx-grid-opt');
+  const previewControls = document.getElementById('mx-preview-controls');
+  const confirmBtn = document.getElementById('mx-confirm-btn');
+  const retakeBtn = document.getElementById('mx-retake-btn');
 
   const HAND_CONNECTIONS = [
     [0,1],[1,2],[2,3],[3,4],
@@ -413,10 +448,239 @@
     ctx.restore();
   }
 
+  // ---- PUZZLE MODE ----
+  const PINCH_ENTER = 34;
+  const PINCH_EXIT = 50;
+  let GRID_N = 3;
+
+  let appMode = 'freeform';
+  let lastVideoImage = null;
+  const previewState = { img:null };
+  const puzzleState = { img:null, size:0, order:[], solved:false };
+  const pinchStates = [ {isPinching:false, grabbedIndex:null, point:null}, {isPinching:false, grabbedIndex:null, point:null} ];
+
+  function mirrorPt(p){ return { x:(1-p.x)*canvas.width, y:p.y*canvas.height }; }
+
+  function shuffleOrder(){
+    const total = GRID_N*GRID_N;
+    const arr = Array.from({length: total}, (_,i)=>i);
+    do {
+      for(let i=arr.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [arr[i],arr[j]] = [arr[j],arr[i]];
+      }
+    } while(arr.every((v,i)=>v===i));
+    return arr;
+  }
+
+  function capturePhoto(){
+    if(!lastVideoImage) return;
+    const src = lastVideoImage;
+    const s = Math.min(src.width, src.height);
+    const sx = (src.width - s)/2, sy = (src.height - s)/2;
+    const off = document.createElement('canvas');
+    off.width = 480; off.height = 480;
+    const octx = off.getContext('2d');
+    octx.save();
+    octx.translate(480,0); octx.scale(-1,1);
+    octx.drawImage(src, sx, sy, s, s, 0, 0, 480, 480);
+    octx.restore();
+    previewState.img = off;
+    appMode = 'preview';
+    puzzleBtn.classList.add('hidden');
+    gridSizeWrap.classList.add('hidden');
+    previewControls.classList.remove('hidden');
+    exitBtn.classList.remove('hidden');
+  }
+
+  function confirmPuzzle(){
+    puzzleState.img = previewState.img;
+    puzzleState.size = 480;
+    puzzleState.order = shuffleOrder();
+    puzzleState.solved = false;
+    pinchStates.forEach(ps=>{ ps.isPinching=false; ps.grabbedIndex=null; });
+    appMode = 'puzzle';
+    previewControls.classList.add('hidden');
+    puzzleBtn.textContent = 'Foto Baru';
+    puzzleBtn.classList.remove('hidden');
+  }
+
+  function drawPreview(){
+    if(!previewState.img) return;
+    const size = Math.min(canvas.width, canvas.height) * 0.62;
+    const x = (canvas.width-size)/2, y = (canvas.height-size)/2 + 10;
+    ctx.fillStyle = 'rgba(2,10,4,0.35)';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,255,102,0.8)';
+    ctx.shadowBlur = 14;
+    ctx.drawImage(previewState.img, 0,0,480,480, x, y, size, size);
+    ctx.strokeStyle = 'rgba(0,255,102,0.6)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, size, size);
+    ctx.restore();
+  }
+
+  function getGridRect(){
+    const gridSize = Math.min(canvas.width, canvas.height) * 0.62;
+    const gx = (canvas.width - gridSize)/2;
+    const gy = (canvas.height - gridSize)/2 + 10;
+    return { gx, gy, gridSize, cell: gridSize/GRID_N };
+  }
+
+  function cellAt(pt){
+    const {gx,gy,gridSize,cell} = getGridRect();
+    if(pt.x<gx || pt.x>gx+gridSize || pt.y<gy || pt.y>gy+gridSize) return null;
+    const col = Math.floor((pt.x-gx)/cell);
+    const row = Math.floor((pt.y-gy)/cell);
+    if(col<0||col>=GRID_N||row<0||row>=GRID_N) return null;
+    return row*GRID_N+col;
+  }
+
+  function checkSolved(){
+    puzzleState.solved = puzzleState.order.every((v,i)=>v===i);
+  }
+
+  function drawTileAt(value, dx, dy, size, glow){
+    const srcCell = puzzleState.size / GRID_N;
+    const col = value % GRID_N, row = Math.floor(value/GRID_N);
+    ctx.save();
+    if(glow){ ctx.shadowColor = 'rgba(0,255,140,0.9)'; ctx.shadowBlur = 18; }
+    ctx.drawImage(puzzleState.img, col*srcCell, row*srcCell, srcCell, srcCell, dx, dy, size, size);
+    ctx.strokeStyle = glow ? 'rgba(180,255,210,0.95)' : 'rgba(0,255,102,0.35)';
+    ctx.lineWidth = glow ? 2.5 : 1;
+    ctx.strokeRect(dx, dy, size, size);
+    ctx.restore();
+  }
+
+  function drawPuzzle(){
+    if(!puzzleState.img) return;
+    const {gx,gy,gridSize,cell} = getGridRect();
+
+    ctx.fillStyle = 'rgba(2,10,4,0.35)';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    const grabbedBy = pinchStates.find(ps=>ps.isPinching && ps.grabbedIndex!==null);
+
+    for(let i=0;i<9;i++){
+      const col = i % GRID_N, row = Math.floor(i/GRID_N);
+      const dx = gx + col*cell, dy = gy + row*cell;
+      if(grabbedBy && grabbedBy.grabbedIndex === i){
+        ctx.save();
+        ctx.strokeStyle = 'rgba(0,255,102,0.5)';
+        ctx.setLineDash([4,4]);
+        ctx.strokeRect(dx+2, dy+2, cell-4, cell-4);
+        ctx.setLineDash([]);
+        ctx.restore();
+        continue;
+      }
+      drawTileAt(puzzleState.order[i], dx, dy, cell, false);
+    }
+
+    if(grabbedBy){
+      const size = cell*1.08;
+      drawTileAt(puzzleState.order[grabbedBy.grabbedIndex], grabbedBy.point.x-size/2, grabbedBy.point.y-size/2, size, true);
+    }
+
+    ctx.save();
+    ctx.strokeStyle = puzzleState.solved ? 'rgba(150,255,190,0.95)' : 'rgba(0,255,102,0.5)';
+    ctx.lineWidth = puzzleState.solved ? 3 : 1.5;
+    ctx.shadowColor = 'rgba(0,255,102,0.8)';
+    ctx.shadowBlur = puzzleState.solved ? 20 : 0;
+    ctx.strokeRect(gx, gy, gridSize, gridSize);
+    ctx.restore();
+
+    if(puzzleState.solved){
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 20px monospace';
+      ctx.fillStyle = 'rgba(180,255,210,0.95)';
+      ctx.shadowColor = 'rgba(0,255,102,0.9)';
+      ctx.shadowBlur = 14;
+      ctx.fillText('TERPECAHKAN', canvas.width/2, gy - 16);
+      ctx.restore();
+    }
+  }
+
+  function drawPinchCursor(pt, active){
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, active?9:5, 0, Math.PI*2);
+    ctx.strokeStyle = active ? 'rgba(180,255,210,0.95)' : 'rgba(0,255,102,0.6)';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = 'rgba(0,255,102,0.9)';
+    ctx.shadowBlur = active?14:6;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function processPuzzleHands(multiHandLandmarks){
+    const seen = [false,false];
+    (multiHandLandmarks||[]).forEach((landmarks, hi)=>{
+      if(hi>1) return;
+      seen[hi] = true;
+      const thumb = mirrorPt(landmarks[4]);
+      const index = mirrorPt(landmarks[8]);
+      const d = Math.hypot(thumb.x-index.x, thumb.y-index.y);
+      const point = { x:(thumb.x+index.x)/2, y:(thumb.y+index.y)/2 };
+      const ps = pinchStates[hi];
+      ps.point = point;
+
+      if(!ps.isPinching && d < PINCH_ENTER){
+        ps.isPinching = true;
+        ps.grabbedIndex = cellAt(point);
+      } else if(ps.isPinching && d > PINCH_EXIT){
+        ps.isPinching = false;
+        if(ps.grabbedIndex !== null){
+          const dropCell = cellAt(point);
+          if(dropCell !== null && dropCell !== ps.grabbedIndex){
+            const tmp = puzzleState.order[dropCell];
+            puzzleState.order[dropCell] = puzzleState.order[ps.grabbedIndex];
+            puzzleState.order[ps.grabbedIndex] = tmp;
+            checkSolved();
+          }
+          ps.grabbedIndex = null;
+        }
+      }
+      drawPinchCursor(point, ps.isPinching);
+    });
+    for(let i=0;i<2;i++){
+      if(!seen[i] && pinchStates[i].isPinching){
+        pinchStates[i].isPinching = false;
+        pinchStates[i].grabbedIndex = null;
+      }
+    }
+  }
+
+  function exitPuzzle(){
+    appMode = 'freeform';
+    puzzleState.img = null;
+    previewState.img = null;
+    puzzleBtn.textContent = 'Foto Puzzle';
+    puzzleBtn.classList.remove('hidden');
+    gridSizeWrap.classList.remove('hidden');
+    previewControls.classList.add('hidden');
+    exitBtn.classList.add('hidden');
+  }
+
+  puzzleBtn.addEventListener('click', capturePhoto);
+  exitBtn.addEventListener('click', exitPuzzle);
+  confirmBtn.addEventListener('click', confirmPuzzle);
+  retakeBtn.addEventListener('click', capturePhoto);
+  gridButtons.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(appMode !== 'freeform') return;
+      GRID_N = parseInt(btn.dataset.n, 10);
+      gridButtons.forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
   let handsDetected = 0;
 
   function onResults(results){
     if(results.image){
+      lastVideoImage = results.image;
       drawVideoFrame(results.image);
     } else {
       ctx.fillStyle = 'rgba(2,4,2,1)';
@@ -424,6 +688,19 @@
     }
 
     drawFace();
+
+    if(appMode === 'preview'){
+      drawPreview();
+      statusEl.textContent = 'pratinjau foto · pakai ini atau ambil ulang?';
+      return;
+    }
+
+    if(appMode === 'puzzle'){
+      drawPuzzle();
+      processPuzzleHands(results.multiHandLandmarks);
+      statusEl.textContent = puzzleState.solved ? 'puzzle terpecahkan!' : 'mode puzzle · cubit & lepas untuk tukar potongan';
+      return;
+    }
 
     handsDetected = (results.multiHandLandmarks || []).length;
 
@@ -534,6 +811,7 @@
       await camera.start();
 
       startWrap.classList.add('hidden');
+      controlsEl.classList.remove('hidden');
       statusEl.textContent = 'kamera aktif · mencari tangan...';
     }catch(err){
       startBtn.textContent = 'Aktifkan Kamera';
