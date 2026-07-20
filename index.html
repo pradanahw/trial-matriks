@@ -89,14 +89,14 @@
   <canvas id="mx-canvas"></canvas>
 
   <div id="mx-hud">
-    <div id="mx-title">HAND CIPHER<span>kepal &rarr; padat &middot; tempelkan jari &rarr; bangun ruang &middot; wajah terbaca</span></div>
+    <div id="mx-title">HAND CIPHER<span>fist &rarr; clump &middot; touch fingers &rarr; build shape &middot; face read</span></div>
     <div id="mx-sig">
       <b id="mx-sig-code">--------</b>
       OPENNESS <span id="mx-sig-open">0%</span>
     </div>
   </div>
 
-  <div id="mx-status">kamera nonaktif</div>
+  <div id="mx-status">camera off</div>
 
   <div id="mx-controls" class="hidden">
     <div id="mx-grid-size" class="mx-btn-group">
@@ -104,18 +104,18 @@
       <button class="mx-btn-small mx-grid-opt" data-n="4">4x4</button>
       <button class="mx-btn-small mx-grid-opt" data-n="5">5x5</button>
     </div>
-    <button id="mx-puzzle-btn" class="mx-btn-small">Foto Puzzle</button>
+    <button id="mx-puzzle-btn" class="mx-btn-small">Photo Puzzle</button>
     <div id="mx-preview-controls" class="hidden">
-      <button id="mx-confirm-btn" class="mx-btn-small">Pakai Ini</button>
-      <button id="mx-retake-btn" class="mx-btn-small">Ambil Ulang</button>
+      <button id="mx-confirm-btn" class="mx-btn-small">Use This</button>
+      <button id="mx-retake-btn" class="mx-btn-small">Retake</button>
     </div>
-    <button id="mx-exit-btn" class="mx-btn-small hidden">Kembali</button>
+    <button id="mx-exit-btn" class="mx-btn-small hidden">Back</button>
   </div>
 
   <div id="mx-start-wrap">
     <div id="mx-title" style="position:static;">HAND CIPHER</div>
-    <p>Kamu akan tetap terlihat lewat kamera. Kepalkan tangan agar partikel matriks memadat, lepas untuk menyebarkannya, dan tempelkan ujung-ujung jari (satu atau dua tangan) untuk membentuk bangun ruang geometris. Ekspresi wajahmu juga ikut terbaca. Semua diproses langsung di browser, tidak ada video yang dikirim ke server manapun.</p>
-    <button id="mx-start-btn">Aktifkan Kamera</button>
+    <p>You'll still see yourself through the camera. Make a fist to let matrix particles clump together, release to scatter them, and touch your fingertips together (one or both hands) to build geometric shapes. Your facial expression gets read too. Everything runs right in your browser, no video is ever sent to any server.</p>
+    <button id="mx-start-btn">Enable Camera</button>
   </div>
 </div>
 
@@ -190,23 +190,42 @@
     return h.toString(16).toUpperCase().padStart(8,'0').slice(0,8);
   }
 
-  const faceState = { landmarks: null, label: 'B aja', emoji: '😐' };
+  const faceState = { landmarks: null, label: 'Neutral', emoji: '😐' };
+
+  let videoTransform = null;
+
+  function computeVideoTransform(img){
+    const cw = canvas.width, ch = canvas.height;
+    const iw = img.width || img.videoWidth, ih = img.height || img.videoHeight;
+    if(!iw || !ih) return null;
+    const scale = Math.max(cw/iw, ch/ih);
+    const dw = iw*scale, dh = ih*scale;
+    const ox = (cw-dw)/2, oy = (ch-dh)/2;
+    return { cw, ch, ox, oy, dw, dh };
+  }
+
+  function mapPoint(p){
+    if(!videoTransform){
+      return { x:(1-p.x)*canvas.width, y:p.y*canvas.height };
+    }
+    const t = videoTransform;
+    return { x: t.cw - (t.ox + p.x*t.dw), y: t.oy + p.y*t.dh };
+  }
 
   function computeMood(landmarks){
     const eyeDist = dist(landmarks[33], landmarks[263]);
     const mouthCenterY = (landmarks[13].y + landmarks[14].y) / 2;
     const cornerAvgY = (landmarks[61].y + landmarks[291].y) / 2;
     const raise = (mouthCenterY - cornerAvgY) / (eyeDist || 0.001);
-    if(raise > 0.045) return { label:'Ok', emoji:'🙂' };
-    if(raise < -0.01) return { label:'Sedih dikit', emoji:'🙁' };
-    return { label:'B aja', emoji:'😐' };
+    if(raise > 0.045) return { label:'Happy', emoji:'🙂' };
+    if(raise < -0.01) return { label:'A bit sad', emoji:'🙁' };
+    return { label:'Neutral', emoji:'😐' };
   }
 
   function drawFace(){
     if(!faceState.landmarks) return;
-    const w = canvas.width, h = canvas.height;
-    const top = faceState.landmarks[10];
-    const x = (1-top.x)*w, y = top.y*h - 30;
+    const top = mapPoint(faceState.landmarks[10]);
+    const x = top.x, y = top.y - 30;
 
     ctx.save();
     ctx.textAlign = 'center';
@@ -218,10 +237,9 @@
     ctx.restore();
 
     [61,291].forEach(idx=>{
-      const p = faceState.landmarks[idx];
-      const px = (1-p.x)*w, py = p.y*h;
+      const p = mapPoint(faceState.landmarks[idx]);
       ctx.beginPath();
-      ctx.arc(px, py, 2.5, 0, Math.PI*2);
+      ctx.arc(p.x, p.y, 2.5, 0, Math.PI*2);
       ctx.fillStyle = 'rgba(255,230,0,0.7)';
       ctx.fill();
     });
@@ -308,8 +326,7 @@
   }
 
   function drawHand(landmarks, openness){
-    const w = canvas.width, h = canvas.height;
-    const pts = landmarks.map(p => ({x:(1-p.x)*w, y:p.y*h}));
+    const pts = landmarks.map(p => mapPoint(p));
 
     ctx.lineWidth = 1.6;
     ctx.strokeStyle = `rgba(0,255,120,${0.55+openness*0.4})`;
@@ -452,10 +469,20 @@
   }
 
   function drawVideoFrame(img){
-    const w = canvas.width, h = canvas.height;
+    const t = computeVideoTransform(img);
+    if(!t){
+      const w = canvas.width, h = canvas.height;
+      ctx.save();
+      ctx.scale(-1,1);
+      ctx.drawImage(img, -w, 0, w, h);
+      ctx.restore();
+      return;
+    }
+    videoTransform = t;
     ctx.save();
+    ctx.translate(canvas.width, 0);
     ctx.scale(-1,1);
-    ctx.drawImage(img, -w, 0, w, h);
+    ctx.drawImage(img, t.ox, t.oy, t.dw, t.dh);
     ctx.restore();
   }
 
@@ -470,7 +497,7 @@
   const puzzleState = { img:null, size:0, order:[], solved:false };
   const pinchStates = [ {isPinching:false, grabbedIndex:null, point:null}, {isPinching:false, grabbedIndex:null, point:null} ];
 
-  function mirrorPt(p){ return { x:(1-p.x)*canvas.width, y:p.y*canvas.height }; }
+  function mirrorPt(p){ return mapPoint(p); }
 
   function shuffleOrder(){
     const total = GRID_N*GRID_N;
@@ -512,7 +539,7 @@
     pinchStates.forEach(ps=>{ ps.isPinching=false; ps.grabbedIndex=null; });
     appMode = 'puzzle';
     previewControls.classList.add('hidden');
-    puzzleBtn.textContent = 'Foto Baru';
+    puzzleBtn.textContent = 'New Photo';
     puzzleBtn.classList.remove('hidden');
   }
 
@@ -573,7 +600,7 @@
 
     const grabbedBy = pinchStates.find(ps=>ps.isPinching && ps.grabbedIndex!==null);
 
-    for(let i=0;i<9;i++){
+    for(let i=0;i<GRID_N*GRID_N;i++){
       const col = i % GRID_N, row = Math.floor(i/GRID_N);
       const dx = gx + col*cell, dy = gy + row*cell;
       if(grabbedBy && grabbedBy.grabbedIndex === i){
@@ -608,7 +635,7 @@
       ctx.fillStyle = 'rgba(255,150,230,0.95)';
       ctx.shadowColor = 'rgba(255,230,0,0.9)';
       ctx.shadowBlur = 14;
-      ctx.fillText('TERPECAHKAN', canvas.width/2, gy - 16);
+      ctx.fillText('SOLVED', canvas.width/2, gy - 16);
       ctx.restore();
     }
   }
@@ -667,7 +694,7 @@
     appMode = 'freeform';
     puzzleState.img = null;
     previewState.img = null;
-    puzzleBtn.textContent = 'Foto Puzzle';
+    puzzleBtn.textContent = 'Photo Puzzle';
     puzzleBtn.classList.remove('hidden');
     gridSizeWrap.classList.remove('hidden');
     previewControls.classList.add('hidden');
@@ -702,14 +729,14 @@
 
     if(appMode === 'preview'){
       drawPreview();
-      statusEl.textContent = 'pratinjau foto · pakai ini atau ambil ulang?';
+      statusEl.textContent = 'photo preview · use this or retake?';
       return;
     }
 
     if(appMode === 'puzzle'){
       drawPuzzle();
       processPuzzleHands(results.multiHandLandmarks);
-      statusEl.textContent = puzzleState.solved ? 'puzzle terpecahkan!' : 'mode puzzle · cubit & lepas untuk tukar potongan';
+      statusEl.textContent = puzzleState.solved ? 'puzzle solved!' : 'puzzle mode · pinch & release to swap pieces';
       return;
     }
 
@@ -763,8 +790,8 @@
         if(handStates[i].particles.length){ fadeOutUnseen(handStates[i]); drawParticles(handStates[i]); }
       }
       statusEl.textContent = mergeStrength > 0.6
-        ? '2 tangan menyatu'
-        : handsDetected + ' tangan terdeteksi';
+        ? '2 hands merging'
+        : handsDetected + ' hand(s) detected';
     } else {
       handStates.forEach(state=>{
         if(state.particles.length){ fadeOutUnseen(state); drawParticles(state); }
@@ -772,7 +799,7 @@
       });
       sigCodeEl.textContent = '--------';
       sigOpenEl.textContent = '0%';
-      statusEl.textContent = 'kamera aktif · tidak ada tangan terdeteksi';
+      statusEl.textContent = 'camera on · no hand detected';
     }
   }
 
@@ -791,7 +818,7 @@
   }
 
   async function start(){
-    startBtn.textContent = 'Meminta izin kamera...';
+    startBtn.textContent = 'Requesting camera access...';
     try{
       hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
       hands.setOptions({
@@ -823,11 +850,11 @@
 
       startWrap.classList.add('hidden');
       controlsEl.classList.remove('hidden');
-      statusEl.textContent = 'kamera aktif · mencari tangan...';
+      statusEl.textContent = 'camera on · looking for a hand...';
     }catch(err){
-      startBtn.textContent = 'Aktifkan Kamera';
-      statusEl.textContent = 'gagal mengakses kamera';
-      alert('Tidak bisa mengakses kamera: ' + (err && err.message ? err.message : err));
+      startBtn.textContent = 'Enable Camera';
+      statusEl.textContent = 'camera access failed';
+      alert('Could not access the camera: ' + (err && err.message ? err.message : err));
     }
   }
 
