@@ -1,9 +1,11 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
   :root{
-    --mx-green:#00ff66;
-    --mx-green-dim:#0a3d1f;
-    --mx-bg:#020402;
-    --mx-glow: 0 0 8px rgba(0,255,102,0.9), 0 0 22px rgba(0,255,102,0.4);
+    --mx-green:#ffe600;
+    --mx-green-dim:#3a0a2a;
+    --mx-bg:#0a0014;
+    --mx-glow: 0 0 8px rgba(255,230,0,0.9), 0 0 22px rgba(255,230,0,0.4);
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;background:var(--mx-bg);overflow:hidden;height:100%;}
@@ -13,9 +15,18 @@
     height:100vh;
     min-height:560px;
     background:var(--mx-bg);
-    font-family:'Courier New', ui-monospace, monospace;
+    font-family:'Press Start 2P', 'Courier New', ui-monospace, monospace;
     color:var(--mx-green);
     overflow:hidden;
+  }
+  #mx-root::after{
+    content:'';
+    position:absolute; inset:0; pointer-events:none; z-index:8;
+    background:repeating-linear-gradient(
+      0deg, rgba(0,0,0,0.18) 0px, rgba(0,0,0,0.18) 1px,
+      transparent 1px, transparent 3px
+    );
+    mix-blend-mode:multiply;
   }
   #mx-video{ display:none; }
   #mx-canvas{
@@ -31,44 +42,44 @@
     z-index:5;
   }
   #mx-title{
-    font-size:13px; letter-spacing:3px; text-transform:uppercase;
-    color:var(--mx-green); text-shadow:var(--mx-glow); opacity:0.9;
+    font-size:9px; letter-spacing:1px; text-transform:uppercase;
+    color:var(--mx-green); text-shadow:var(--mx-glow); opacity:0.9; line-height:1.6;
   }
-  #mx-title span{opacity:0.55; display:block; font-size:10px; letter-spacing:2px; margin-top:4px;}
+  #mx-title span{opacity:0.55; display:block; font-size:7px; letter-spacing:0.5px; margin-top:6px;}
   #mx-sig{
-    text-align:right; font-size:11px; letter-spacing:2px; line-height:1.6;
+    text-align:right; font-size:8px; letter-spacing:1px; line-height:2;
     color:var(--mx-green); text-shadow:var(--mx-glow); min-width:220px;
   }
-  #mx-sig b{display:block; font-size:15px; letter-spacing:3px;}
+  #mx-sig b{display:block; font-size:11px; letter-spacing:1px; margin-bottom:4px;}
   #mx-start-wrap{
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-    flex-direction:column; gap:18px; z-index:10; background:rgba(2,4,2,0.94);
+    flex-direction:column; gap:18px; z-index:10; background:rgba(10,0,20,0.94);
     text-align:center; padding:24px;
   }
-  #mx-start-wrap p{max-width:420px; font-size:12.5px; line-height:1.7; color:#5fffa0; opacity:0.85;}
+  #mx-start-wrap p{max-width:420px; font-size:9px; line-height:2; color:#ffe98a; opacity:0.9; letter-spacing:0.5px;}
   #mx-start-btn{
     background:transparent; border:1px solid var(--mx-green); color:var(--mx-green);
-    padding:12px 28px; font-family:inherit; font-size:13px; letter-spacing:3px;
+    padding:12px 20px; font-family:inherit; font-size:9px; letter-spacing:1px;
     text-transform:uppercase; cursor:pointer; text-shadow:var(--mx-glow);
     transition:all .25s ease;
   }
-  #mx-start-btn:hover{ background:var(--mx-green-dim); box-shadow:0 0 24px rgba(0,255,102,0.35); }
+  #mx-start-btn:hover{ background:var(--mx-green-dim); box-shadow:0 0 24px rgba(255,230,0,0.35); }
   #mx-status{
-    position:absolute; bottom:16px; left:20px; font-size:11px; letter-spacing:2px;
-    color:var(--mx-green); opacity:0.7; z-index:5; text-shadow:0 0 6px rgba(0,255,102,0.6);
+    position:absolute; bottom:16px; left:20px; font-size:8px; letter-spacing:1px;
+    color:var(--mx-green); opacity:0.7; z-index:5; text-shadow:0 0 6px rgba(255,230,0,0.6);
   }
   #mx-controls{
-    position:absolute; bottom:16px; right:20px; z-index:6; display:flex; gap:10px; align-items:center;
+    position:absolute; bottom:16px; right:20px; z-index:6; display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end;
   }
   .mx-btn-small{
     background:transparent; border:1px solid var(--mx-green); color:var(--mx-green);
-    padding:8px 14px; font-family:inherit; font-size:11px; letter-spacing:2px;
+    padding:8px 10px; font-family:inherit; font-size:8px; letter-spacing:0.5px;
     text-transform:uppercase; cursor:pointer; text-shadow:var(--mx-glow);
     pointer-events:auto; transition:all .2s ease;
   }
   .mx-btn-small:hover{ background:var(--mx-green-dim); }
   .mx-btn-group{ display:flex; gap:6px; }
-  .mx-grid-opt.active{ background:var(--mx-green-dim); box-shadow:0 0 14px rgba(0,255,102,0.4); }
+  .mx-grid-opt.active{ background:var(--mx-green-dim); box-shadow:0 0 14px rgba(255,230,0,0.4); }
   #mx-preview-controls{ display:flex; gap:10px; }
   .hidden{ display:none !important; }
 </style>
@@ -142,7 +153,7 @@
   ];
   const FINGER_TIPS = [4,8,12,16,20];
   const PALM_IDX = [0,5,9,13,17];
-  const GLYPHS = "アイウエオカキクケコサシスセソ0123456789#$%&";
+  const GLYPHS = "★☆♦♣♥▲◆●0123456789";
 
   const FIST_THRESH = 0.30;
   const OPEN_THRESH = 0.55;
@@ -200,8 +211,8 @@
     ctx.save();
     ctx.textAlign = 'center';
     ctx.font = '13px monospace';
-    ctx.fillStyle = 'rgba(180,255,210,0.95)';
-    ctx.shadowColor = 'rgba(0,255,102,0.9)';
+    ctx.fillStyle = 'rgba(255,150,230,0.95)';
+    ctx.shadowColor = 'rgba(255,230,0,0.9)';
     ctx.shadowBlur = 8;
     ctx.fillText(faceState.emoji + ' ' + faceState.label, x, y);
     ctx.restore();
@@ -211,7 +222,7 @@
       const px = (1-p.x)*w, py = p.y*h;
       ctx.beginPath();
       ctx.arc(px, py, 2.5, 0, Math.PI*2);
-      ctx.fillStyle = 'rgba(0,255,102,0.7)';
+      ctx.fillStyle = 'rgba(255,230,0,0.7)';
       ctx.fill();
     });
   }
@@ -288,8 +299,8 @@
   function drawParticles(state){
     state.particles.forEach(p=>{
       ctx.font = p.size + 'px monospace';
-      ctx.fillStyle = `rgba(120,255,170,${p.alpha.toFixed(2)})`;
-      ctx.shadowColor = 'rgba(0,255,102,0.9)';
+      ctx.fillStyle = `rgba(255,150,230,${p.alpha.toFixed(2)})`;
+      ctx.shadowColor = 'rgba(255,230,0,0.9)';
       ctx.shadowBlur = 8;
       ctx.fillText(p.glyph, p.x, p.y);
     });
@@ -302,7 +313,7 @@
 
     ctx.lineWidth = 1.6;
     ctx.strokeStyle = `rgba(0,255,120,${0.55+openness*0.4})`;
-    ctx.shadowColor = 'rgba(0,255,102,0.9)';
+    ctx.shadowColor = 'rgba(255,230,0,0.9)';
     ctx.shadowBlur = 10 + openness*14;
     ctx.beginPath();
     HAND_CONNECTIONS.forEach(([a,b])=>{
@@ -312,7 +323,7 @@
     ctx.stroke();
 
     ctx.lineWidth = 0.8;
-    ctx.strokeStyle = `rgba(0,255,102,${0.2+openness*0.3})`;
+    ctx.strokeStyle = `rgba(255,230,0,${0.2+openness*0.3})`;
     ctx.beginPath();
     for(let i=0;i<FINGER_TIPS.length;i++){
       for(let j=i+1;j<FINGER_TIPS.length;j++){
@@ -328,8 +339,8 @@
       const r = isTip ? 4.5 + openness*3 : 2.4;
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, Math.PI*2);
-      ctx.fillStyle = isTip ? '#baffd9' : 'rgba(0,255,102,0.85)';
-      ctx.shadowColor = 'rgba(0,255,102,1)';
+      ctx.fillStyle = isTip ? '#ff9be0' : 'rgba(255,230,0,0.85)';
+      ctx.shadowColor = 'rgba(255,230,0,1)';
       ctx.shadowBlur = isTip ? 14 : 4;
       ctx.fill();
     });
@@ -337,7 +348,7 @@
 
     const sig = computeSignature(landmarks);
     ctx.font = '10px monospace';
-    ctx.fillStyle = 'rgba(0,255,102,0.8)';
+    ctx.fillStyle = 'rgba(255,230,0,0.8)';
     FINGER_TIPS.forEach((idx, k)=>{
       const p = pts[idx];
       ctx.fillText(sig[k] || '0', p.x + 8, p.y - 8);
@@ -382,9 +393,9 @@
       const a = tips[i], b = tips[j];
       const strength = 1 - d/TIP_LINK_THRESH;
       ctx.save();
-      ctx.strokeStyle = `rgba(180,255,210,${0.4+strength*0.5})`;
+      ctx.strokeStyle = `rgba(255,150,230,${0.4+strength*0.5})`;
       ctx.lineWidth = 1.5 + strength*2.5;
-      ctx.shadowColor = 'rgba(0,255,140,0.9)';
+      ctx.shadowColor = 'rgba(255,43,180,0.9)';
       ctx.shadowBlur = 6 + strength*14;
       ctx.beginPath();
       ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
@@ -408,11 +419,11 @@
       ctx.beginPath();
       sorted.forEach((p,idx)=>{ idx===0 ? ctx.moveTo(p.x,p.y) : ctx.lineTo(p.x,p.y); });
       ctx.closePath();
-      ctx.fillStyle = `rgba(0,255,140,${depthShade.toFixed(2)})`;
-      ctx.shadowColor = 'rgba(0,255,102,0.8)';
+      ctx.fillStyle = `rgba(255,43,180,${depthShade.toFixed(2)})`;
+      ctx.shadowColor = 'rgba(255,230,0,0.8)';
       ctx.shadowBlur = 16;
       ctx.fill();
-      ctx.strokeStyle = 'rgba(200,255,220,0.8)';
+      ctx.strokeStyle = 'rgba(255,150,230,0.8)';
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.restore();
@@ -425,9 +436,9 @@
 
   function drawMergeLink(c0, c1, strength){
     ctx.save();
-    ctx.strokeStyle = `rgba(150,255,190,${0.3+strength*0.5})`;
+    ctx.strokeStyle = `rgba(255,150,230,${0.3+strength*0.5})`;
     ctx.lineWidth = 1 + strength*2;
-    ctx.shadowColor = 'rgba(0,255,102,0.9)';
+    ctx.shadowColor = 'rgba(255,230,0,0.9)';
     ctx.shadowBlur = 6 + strength*18;
     ctx.beginPath();
     ctx.moveTo(c0.x, c0.y);
@@ -435,7 +446,7 @@
     ctx.stroke();
     const mid = { x:(c0.x+c1.x)/2, y:(c0.y+c1.y)/2 };
     ctx.font = (12 + strength*10) + 'px monospace';
-    ctx.fillStyle = `rgba(200,255,220,${0.5+strength*0.5})`;
+    ctx.fillStyle = `rgba(255,150,230,${0.5+strength*0.5})`;
     ctx.fillText(GLYPHS[Math.floor(Math.random()*GLYPHS.length)], mid.x-6, mid.y+4);
     ctx.restore();
   }
@@ -509,13 +520,13 @@
     if(!previewState.img) return;
     const size = Math.min(canvas.width, canvas.height) * 0.62;
     const x = (canvas.width-size)/2, y = (canvas.height-size)/2 + 10;
-    ctx.fillStyle = 'rgba(2,10,4,0.35)';
+    ctx.fillStyle = 'rgba(10,0,20,0.35)';
     ctx.fillRect(0,0,canvas.width,canvas.height);
     ctx.save();
-    ctx.shadowColor = 'rgba(0,255,102,0.8)';
+    ctx.shadowColor = 'rgba(255,230,0,0.8)';
     ctx.shadowBlur = 14;
     ctx.drawImage(previewState.img, 0,0,480,480, x, y, size, size);
-    ctx.strokeStyle = 'rgba(0,255,102,0.6)';
+    ctx.strokeStyle = 'rgba(255,230,0,0.6)';
     ctx.lineWidth = 2;
     ctx.strokeRect(x, y, size, size);
     ctx.restore();
@@ -545,9 +556,9 @@
     const srcCell = puzzleState.size / GRID_N;
     const col = value % GRID_N, row = Math.floor(value/GRID_N);
     ctx.save();
-    if(glow){ ctx.shadowColor = 'rgba(0,255,140,0.9)'; ctx.shadowBlur = 18; }
+    if(glow){ ctx.shadowColor = 'rgba(255,43,180,0.9)'; ctx.shadowBlur = 18; }
     ctx.drawImage(puzzleState.img, col*srcCell, row*srcCell, srcCell, srcCell, dx, dy, size, size);
-    ctx.strokeStyle = glow ? 'rgba(180,255,210,0.95)' : 'rgba(0,255,102,0.35)';
+    ctx.strokeStyle = glow ? 'rgba(255,150,230,0.95)' : 'rgba(255,230,0,0.35)';
     ctx.lineWidth = glow ? 2.5 : 1;
     ctx.strokeRect(dx, dy, size, size);
     ctx.restore();
@@ -557,7 +568,7 @@
     if(!puzzleState.img) return;
     const {gx,gy,gridSize,cell} = getGridRect();
 
-    ctx.fillStyle = 'rgba(2,10,4,0.35)';
+    ctx.fillStyle = 'rgba(10,0,20,0.35)';
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
     const grabbedBy = pinchStates.find(ps=>ps.isPinching && ps.grabbedIndex!==null);
@@ -567,7 +578,7 @@
       const dx = gx + col*cell, dy = gy + row*cell;
       if(grabbedBy && grabbedBy.grabbedIndex === i){
         ctx.save();
-        ctx.strokeStyle = 'rgba(0,255,102,0.5)';
+        ctx.strokeStyle = 'rgba(255,230,0,0.5)';
         ctx.setLineDash([4,4]);
         ctx.strokeRect(dx+2, dy+2, cell-4, cell-4);
         ctx.setLineDash([]);
@@ -583,9 +594,9 @@
     }
 
     ctx.save();
-    ctx.strokeStyle = puzzleState.solved ? 'rgba(150,255,190,0.95)' : 'rgba(0,255,102,0.5)';
+    ctx.strokeStyle = puzzleState.solved ? 'rgba(255,150,230,0.95)' : 'rgba(255,230,0,0.5)';
     ctx.lineWidth = puzzleState.solved ? 3 : 1.5;
-    ctx.shadowColor = 'rgba(0,255,102,0.8)';
+    ctx.shadowColor = 'rgba(255,230,0,0.8)';
     ctx.shadowBlur = puzzleState.solved ? 20 : 0;
     ctx.strokeRect(gx, gy, gridSize, gridSize);
     ctx.restore();
@@ -594,8 +605,8 @@
       ctx.save();
       ctx.textAlign = 'center';
       ctx.font = 'bold 20px monospace';
-      ctx.fillStyle = 'rgba(180,255,210,0.95)';
-      ctx.shadowColor = 'rgba(0,255,102,0.9)';
+      ctx.fillStyle = 'rgba(255,150,230,0.95)';
+      ctx.shadowColor = 'rgba(255,230,0,0.9)';
       ctx.shadowBlur = 14;
       ctx.fillText('TERPECAHKAN', canvas.width/2, gy - 16);
       ctx.restore();
@@ -606,9 +617,9 @@
     ctx.save();
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, active?9:5, 0, Math.PI*2);
-    ctx.strokeStyle = active ? 'rgba(180,255,210,0.95)' : 'rgba(0,255,102,0.6)';
+    ctx.strokeStyle = active ? 'rgba(255,150,230,0.95)' : 'rgba(255,230,0,0.6)';
     ctx.lineWidth = 2;
-    ctx.shadowColor = 'rgba(0,255,102,0.9)';
+    ctx.shadowColor = 'rgba(255,230,0,0.9)';
     ctx.shadowBlur = active?14:6;
     ctx.stroke();
     ctx.restore();
@@ -683,7 +694,7 @@
       lastVideoImage = results.image;
       drawVideoFrame(results.image);
     } else {
-      ctx.fillStyle = 'rgba(2,4,2,1)';
+      ctx.fillStyle = 'rgba(10,0,20,1)';
       ctx.fillRect(0,0,canvas.width,canvas.height);
     }
 
